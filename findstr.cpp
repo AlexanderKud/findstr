@@ -33,17 +33,9 @@
 #include <boost/algorithm/searching/boyer_moore_horspool.hpp>
 #endif
 
-// NOTE: in gcc this is not experimental, for clang it is.
-#if defined(__GLIBCXX__) || defined(_WIN32)
 // https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_macros.html
 #include <functional>
 #define SEARCHERNS std
-#endif
-
-#ifdef _LIBCPP_VERSION
-#include <experimental/functional>
-#define SEARCHERNS std::experimental
-#endif
 
 using namespace std::string_literals;
 
@@ -70,12 +62,14 @@ using namespace std::string_literals;
     try { \
         call; \
     } \
+    catch(const stopsearch&) { stop = true; break; } \
     catch(const std::exception& e) { \
         print("EXCEPTION in %s - %s\n", arg, e.what()); \
     } \
     catch(...) { \
         print("EXCEPTION in %s\n", arg); \
     }
+
 
 //
 // TODO: add option to specify what is printed for matches:
@@ -88,6 +82,8 @@ using namespace std::string_literals;
 //
 typedef std::vector<uint8_t> ByteVector;
 typedef std::pair<ByteVector,ByteVector> ByteMaskType;
+
+struct stopsearch : std::exception { };
 
 /*
  *  class which defines how hex-patterns are handled:
@@ -484,6 +480,7 @@ struct findstr {
     bool matchbinary = false;    // modifies pattern, modifies verbose output
     bool matchcase = false;      // modifies pattern
     bool matchstart = false;      // modifies pattern
+    bool firstmatch = false;      // 
     bool pattern_is_hex = false; // modifies verbose output, implies binary
     bool pattern_is_guid = false;// modifies verbose output, implies binary
     int verbose = 0;             // modifies ouput
@@ -685,6 +682,8 @@ struct findstr {
             print("%08x", offset + first - bufstart);
             nameprinted = true;
         }
+        if (firstmatch)
+            throw stopsearch();
         if (matchstart) {
             return false;
         }
@@ -1020,6 +1019,7 @@ int main(int argc, char** argv)
             case 'b': f.matchbinary = true; break;
             case 'I': f.matchcase = true; break;
             case '0': f.matchstart = true; break;
+            case '1': f.firstmatch = true; break;
             case 'x': f.pattern_is_hex = true; break;
             case 'g': f.pattern_is_guid = true; break;
             case 'v': f.verbose += arg.count(); break;
@@ -1089,10 +1089,13 @@ int main(int argc, char** argv)
             print("Compiled  mask: %-b\n", bm.second);
         }
     }
+    bool stop = false;
 #ifdef WITH_MEMSEARCH
     if (f.memoffset)
         catchall(f.searchmemory(), "memory");
 #endif
+    if (stop)
+        return 0;
 
     for (auto const& arg : args) {
         if (arg == "-")
@@ -1114,6 +1117,9 @@ int main(int argc, char** argv)
                 catchall(f.searchfile(arg), arg);
             }
         }
+
+        if (stop)
+            return 0;
     }
 
     return 0;
